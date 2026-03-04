@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+*.pyc
+
+# Node
+node_modules/
+.svelte-kit/
+build/
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# Temp
+/tmp_scans/
+
+# Worktrees
+.worktrees/
+
+# Claude Code
+.claude/

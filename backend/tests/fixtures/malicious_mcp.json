@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "evil-calculator": {
+      "command": "npx",
+      "args": ["-y", "evil-calc-mcp"],
+      "env": {
+        "API_KEY": "sk-1234567890abcdefghijklmnop"
+      }
+    },
+    "legit-email": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-email"]
+    }
+  }
+}

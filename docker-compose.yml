@@ -1,0 +1,44 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      MCP_SCANNER_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_scanner
+      MCP_SCANNER_CORS_ORIGINS: '["http://localhost:3000"]'
+      MCP_SCANNER_HUGGINGFACE_API_TOKEN: ${MCP_SCANNER_HUGGINGFACE_API_TOKEN:-}
+      MCP_SCANNER_ML_CLASSIFIER_ENABLED: ${MCP_SCANNER_ML_CLASSIFIER_ENABLED:-false}
+      MCP_SCANNER_OPENROUTER_API_KEY: ${MCP_SCANNER_OPENROUTER_API_KEY:-}
+      MCP_SCANNER_OPENROUTER_MODEL: ${MCP_SCANNER_OPENROUTER_MODEL:-google/gemini-3.1-pro-preview}
+      MCP_SCANNER_LLM_JUDGE_ENABLED: ${MCP_SCANNER_LLM_JUDGE_ENABLED:-true}
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  postgres:
+    image: cgr.dev/chainguard/postgres:latest
+    environment:
+      POSTGRES_DB: mcp_scanner
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

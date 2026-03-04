@@ -1,0 +1,104 @@
+@import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap');
+
+@theme {
+	--font-sans: 'Instrument Sans', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', 'Menlo', monospace;
+
+	/* Surfaces */
+	--color-bg-deep: #0b0f19;
+	--color-bg: #111827;
+	--color-bg-raised: #1a2035;
+	--color-bg-hover: #1f2a3d;
+
+	/* Borders */
+	--color-edge: #1e293b;
+	--color-edge-light: #293548;
+
+	/* Text */
+	--color-t1: #e2e8f0;
+	--color-t2: #94a3b8;
+	--color-t3: #64748b;
+	--color-t4: #334155;
+
+	/* Severity */
+	--color-crit: #f43f5e;
+	--color-high: #f59e0b;
+	--color-med: #eab308;
+	--color-low: #06b6d4;
+	--color-clear: #10b981;
+
+	/* Accent */
+	--color-blue: #3b82f6;
+	--color-blue-dim: #2563eb;
+}
+
+/* ── Base ── */
+html {
+	background: var(--color-bg-deep);
+	color: var(--color-t1);
+}
+
+::selection {
+	background: rgba(59, 130, 246, 0.3);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-edge-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-t4); }
+
+/* ── Animations ── */
+@keyframes fade-up {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+.anim-in {
+	animation: fade-up 0.3s ease-out both;
+}
+
+@keyframes bar-grow {
+	from { transform: scaleX(0); }
+	to { transform: scaleX(1); }
+}
+.anim-bar {
+	animation: bar-grow 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+	transform-origin: left;
+}
+
+@keyframes pulse-dot {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.4; }
+}
+.anim-pulse {
+	animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes expand-in {
+	from { opacity: 0; max-height: 0; }
+	to { opacity: 1; max-height: 1200px; }
+}
+.anim-expand {
+	animation: expand-in 0.25s ease-out forwards;
+	overflow: hidden;
+}
+
+@keyframes slide-in-right {
+	from { transform: translateX(100%); }
+	to { transform: translateX(0); }
+}
+.anim-slide-in {
+	animation: slide-in-right 0.25s ease-out both;
+}
+
+/* ── Utility ── */
+.severity-bar {
+	display: flex;
+	gap: 2px;
+}
+.severity-bar span {
+	width: 6px;
+	height: 14px;
+	border-radius: 1px;
+}

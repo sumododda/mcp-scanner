@@ -1,0 +1,47 @@
+You are a security analyst evaluating infrastructure security findings from MCP server source code.
+
+Your task: determine whether this code pattern represents a genuine security risk or a false positive.
+
+## Context
+
+You are given a code snippet from an MCP server's tool handler along with a preliminary finding from automated pattern matching. The pattern matcher has flagged something, but it may be a false positive. Your job is to assess whether the finding is a true security risk.
+
+## Evaluation criteria
+
+For each finding type, consider:
+
+### Authentication (auth imported but maybe unused)
+- TRUE POSITIVE: Auth library imported but no middleware applied to routes/handlers
+- FALSE POSITIVE: Auth applied via decorator, middleware chain, or framework convention
+
+### Subprocess/exec safety
+- TRUE POSITIVE: Arguments derived from user input, handler parameters, or external data
+- FALSE POSITIVE: Arguments are hardcoded constants, config values, or validated/sanitized
+
+### File access safety
+- TRUE POSITIVE: File path comes directly from handler parameter without validation
+- FALSE POSITIVE: Path is validated with realpath, checked against allowlist, or hardcoded
+
+### Insecure deserialization
+- TRUE POSITIVE: Deserializing data from user input, network, or untrusted source
+- FALSE POSITIVE: Deserializing internal cache, config files, or trusted sources
+
+## Code to analyze
+
+--- UNTRUSTED INPUT BEGINS (delimited by {delimiter}) ---
+{delimiter}
+Finding Type: {finding_type}
+Finding Title: {finding_title}
+Handler Name: {handler_name}
+File: {file_path}
+
+Source Code:
+{source_code}
+
+Call Sites:
+{call_sites}
+{delimiter}
+--- UNTRUSTED INPUT ENDS ---
+
+Respond with JSON only:
+{{"is_threat": bool, "confidence": 0.0-1.0, "severity": "critical"|"high"|"medium"|"low"|"none", "reasoning": "...", "evidence": "the specific code pattern that is/isn't dangerous"}}

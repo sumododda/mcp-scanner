@@ -1,0 +1,592 @@
+"""Tests for manifest_parsers module — pluggable parsers for 4 ecosystems.
+
+Uses tempfile.TemporaryDirectory for all tests. Covers npm, Python, Go, Rust
+ecosystems with proper PURL validation via packageurl-python.
+"""
+
+import json
+import tempfile
+from pathlib import Path
+
+from mcp_scanner.services.manifest_parsers import (
+    detect_manifests,
+    parse_all,
+    parse_cargo_lock,
+    parse_cargo_toml,
+    parse_go_mod,
+    parse_go_sum,
+    parse_npm_lockfile,
+    parse_package_json,
+    parse_pnpm_lock,
+    parse_poetry_lock,
+    parse_pyproject_toml,
+    parse_requirements_txt,
+    parse_yarn_lock,
+)
+
+
+# ---------------------------------------------------------------------------
+# npm ecosystem
+# ---------------------------------------------------------------------------
+
+
+class TestNpmParsers:
+    """Tests for npm ecosystem parsers."""
+
+    def test_parse_package_lock_v3(self):
+        """Parse package-lock.json v3 flat packages, including scoped packages."""
+        lockfile = {
+            "name": "my-app",
+            "version": "1.0.0",
+            "lockfileVersion": 3,
+            "packages": {
+                "": {"name": "my-app", "version": "1.0.0"},
+                "node_modules/express": {
+                    "version": "4.18.2",
+                    "dependencies": {"accepts": "~1.3.8"},
+                },
+                "node_modules/accepts": {"version": "1.3.8"},
+                "node_modules/@types/node": {"version": "20.11.0"},
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package-lock.json").write_text(json.dumps(lockfile))
+            result = parse_npm_lockfile(repo)
+
+        assert result is not None
+        assert result.ecosystem == "npm"
+        assert result.main_name == "my-app"
+        assert result.main_version == "1.0.0"
+        assert len(result.components) == 3
+
+        # Verify scoped package PURL
+        scoped = [c for c in result.components if c.name == "@types/node"]
+        assert len(scoped) == 1
+        assert scoped[0].purl.type == "npm"
+        assert scoped[0].purl.namespace == "@types"
+        assert scoped[0].purl.name == "node"
+        assert scoped[0].purl.version == "20.11.0"
+        assert str(scoped[0].purl) == "pkg:npm/%40types/node@20.11.0"
+
+        # Verify dependency edges
+        express_purl = str(
+            [c for c in result.components if c.name == "express"][0].purl
+        )
+        assert express_purl in result.dependencies
+        dep_purls = result.dependencies[express_purl]
+        assert any("accepts" in d for d in dep_purls)
+
+    def test_parse_package_lock_v1(self):
+        """Parse package-lock.json v1 with nested dependencies."""
+        lockfile = {
+            "name": "legacy-app",
+            "version": "0.1.0",
+            "lockfileVersion": 1,
+            "dependencies": {
+                "lodash": {"version": "4.17.21", "requires": {}},
+                "express": {
+                    "version": "4.18.2",
+                    "requires": {"accepts": "~1.3.8"},
+                    "dependencies": {
+                        "accepts": {"version": "1.3.8", "requires": {}}
+                    },
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package-lock.json").write_text(json.dumps(lockfile))
+            result = parse_npm_lockfile(repo)
+
+        assert result is not None
+        assert result.main_name == "legacy-app"
+        assert result.main_version == "0.1.0"
+        names = {c.name for c in result.components}
+        assert "lodash" in names
+        assert "express" in names
+        assert "accepts" in names
+
+    def test_parse_package_json_fallback(self):
+        """Parse package.json for direct deps + devDeps (fallback)."""
+        pkg = {
+            "name": "simple-app",
+            "version": "2.0.0",
+            "dependencies": {"express": "^4.18.0", "lodash": "~4.17.21"},
+            "devDependencies": {"jest": ">=29.0.0"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(json.dumps(pkg))
+            result = parse_package_json(repo)
+
+        assert result is not None
+        assert result.ecosystem == "npm"
+        assert result.main_name == "simple-app"
+        assert result.main_version == "2.0.0"
+        names = {c.name for c in result.components}
+        assert "express" in names
+        assert "lodash" in names
+        assert "jest" in names
+        # Verify version stripping of semver prefixes
+        express = [c for c in result.components if c.name == "express"][0]
+        assert express.version == "4.18.0"
+
+    def test_parse_yarn_lock(self):
+        """Parse yarn.lock v1 format."""
+        yarn_content = '''\
+# THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.
+# yarn lockfile v1
+
+
+express@^4.18.0:
+  version "4.18.2"
+  resolved "https://registry.yarnpkg.com/express/-/express-4.18.2.tgz#abc123"
+  integrity sha512-abc123
+
+lodash@^4.17.21:
+  version "4.17.21"
+  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.21.tgz#def456"
+  integrity sha512-def456
+
+"@types/node@^20.0.0":
+  version "20.11.0"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-20.11.0.tgz#ghi789"
+  integrity sha512-ghi789
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "yarn.lock").write_text(yarn_content)
+            # Also write package.json for main name
+            (repo / "package.json").write_text(
+                json.dumps({"name": "yarn-app", "version": "1.0.0"})
+            )
+            result = parse_yarn_lock(repo)
+
+        assert result is not None
+        assert result.ecosystem == "npm"
+        names = {c.name for c in result.components}
+        assert "express" in names
+        assert "lodash" in names
+        assert "@types/node" in names
+
+        scoped = [c for c in result.components if c.name == "@types/node"]
+        assert scoped[0].purl.namespace == "@types"
+        assert scoped[0].purl.name == "node"
+
+    def test_parse_pnpm_lock(self):
+        """Parse pnpm-lock.yaml packages map."""
+        pnpm_content = """\
+lockfileVersion: '6.0'
+
+settings:
+  autoInstallPeers: true
+
+dependencies:
+  express:
+    specifier: ^4.18.0
+    version: 4.18.2
+
+packages:
+
+  /express@4.18.2:
+    resolution: {integrity: sha512-abc}
+    dependencies:
+      accepts: 1.3.8
+    dev: false
+
+  /accepts@1.3.8:
+    resolution: {integrity: sha512-def}
+    dev: false
+
+  /@types/node@20.11.0:
+    resolution: {integrity: sha512-ghi}
+    dev: true
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "pnpm-lock.yaml").write_text(pnpm_content)
+            (repo / "package.json").write_text(
+                json.dumps({"name": "pnpm-app", "version": "3.0.0"})
+            )
+            result = parse_pnpm_lock(repo)
+
+        assert result is not None
+        assert result.ecosystem == "npm"
+        names = {c.name for c in result.components}
+        assert "express" in names
+        assert "accepts" in names
+        assert "@types/node" in names
+
+
+# ---------------------------------------------------------------------------
+# Python ecosystem
+# ---------------------------------------------------------------------------
+
+
+class TestPythonParsers:
+    """Tests for Python ecosystem parsers."""
+
+    def test_parse_requirements_txt(self):
+        """Parse requirements.txt with pinned/unpinned/comments/flags."""
+        content = """\
+# Core dependencies
+requests==2.31.0
+flask>=2.3.0
+-r other-requirements.txt
+--index-url https://pypi.org/simple
+numpy
+# Another comment
+pytest==7.4.0
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "requirements.txt").write_text(content)
+            result = parse_requirements_txt(repo)
+
+        assert result is not None
+        assert result.ecosystem == "pypi"
+        names = {c.name for c in result.components}
+        assert "requests" in names
+        assert "flask" in names
+        assert "numpy" in names
+        assert "pytest" in names
+
+        # Pinned version
+        requests_comp = [c for c in result.components if c.name == "requests"][0]
+        assert requests_comp.version == "2.31.0"
+
+        # Unpinned version
+        numpy_comp = [c for c in result.components if c.name == "numpy"][0]
+        assert numpy_comp.version == ""
+
+        # flags/comments not parsed as packages
+        for c in result.components:
+            assert not c.name.startswith("-")
+            assert not c.name.startswith("#")
+
+    def test_parse_pyproject_toml(self):
+        """Parse pyproject.toml [project.dependencies]."""
+        content = """\
+[project]
+name = "my-python-app"
+version = "1.2.3"
+dependencies = [
+    "requests>=2.31.0",
+    "click~=8.1",
+    "pydantic==2.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[build-system]
+requires = ["setuptools"]
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "pyproject.toml").write_text(content)
+            result = parse_pyproject_toml(repo)
+
+        assert result is not None
+        assert result.ecosystem == "pypi"
+        assert result.main_name == "my-python-app"
+        assert result.main_version == "1.2.3"
+        names = {c.name for c in result.components}
+        assert "requests" in names
+        assert "click" in names
+        assert "pydantic" in names
+
+        pydantic = [c for c in result.components if c.name == "pydantic"][0]
+        assert pydantic.version == "2.5.0"
+
+    def test_parse_poetry_lock(self):
+        """Parse poetry.lock [[package]] blocks."""
+        content = """\
+# This file is automatically @generated by Poetry and should not be changed.
+
+[[package]]
+name = "requests"
+version = "2.31.0"
+description = "Python HTTP for Humans."
+optional = false
+python-versions = ">=3.7"
+
+[[package]]
+name = "certifi"
+version = "2023.11.17"
+description = "Python package for providing Mozilla's CA Bundle."
+optional = false
+python-versions = ">=3.6"
+
+[[package]]
+name = "urllib3"
+version = "2.1.0"
+description = "HTTP library"
+optional = false
+python-versions = ">=3.8"
+
+[metadata]
+lock-version = "2.0"
+python-versions = "^3.12"
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "poetry.lock").write_text(content)
+            (repo / "pyproject.toml").write_text(
+                '[project]\nname = "poetry-app"\nversion = "0.1.0"\n'
+            )
+            result = parse_poetry_lock(repo)
+
+        assert result is not None
+        assert result.ecosystem == "pypi"
+        names = {c.name for c in result.components}
+        assert "requests" in names
+        assert "certifi" in names
+        assert "urllib3" in names
+        assert len(result.components) == 3
+
+        requests_comp = [c for c in result.components if c.name == "requests"][0]
+        assert requests_comp.purl.type == "pypi"
+        assert requests_comp.version == "2.31.0"
+
+
+# ---------------------------------------------------------------------------
+# Go ecosystem
+# ---------------------------------------------------------------------------
+
+
+class TestGoParsers:
+    """Tests for Go ecosystem parsers."""
+
+    def test_parse_go_sum(self):
+        """Parse go.sum with deduplication of /go.mod and /h1 entries."""
+        content = """\
+github.com/gin-gonic/gin v1.9.1 h1:4idEAncQnU5cB7BeOkPtxjfCSye0AAm1R0RVIqFPSHw=
+github.com/gin-gonic/gin v1.9.1/go.mod h1:hPrL/0KcuqOSEA4GZQR4orFDAa0FPda2Bxbw3lKvHbs=
+golang.org/x/net v0.17.0 h1:tnT7PkKbnFQuOPMSCMJXfgAkvbERjJBn1yprgYcv0QA=
+golang.org/x/net v0.17.0/go.mod h1:NxSam+9ovI078Pl1f0XgM+LpL5IkIGlXjzJfzRl00mY=
+github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQksXRJi6+GNwF8o=
+github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "go.sum").write_text(content)
+            (repo / "go.mod").write_text(
+                "module github.com/myorg/myapp\n\ngo 1.21\n"
+            )
+            result = parse_go_sum(repo)
+
+        assert result is not None
+        assert result.ecosystem == "golang"
+        # Should deduplicate: each module appears once despite h1 + /go.mod lines
+        assert len(result.components) == 3
+        names = {c.name for c in result.components}
+        assert "github.com/gin-gonic/gin" in names
+        assert "golang.org/x/net" in names
+
+        gin = [c for c in result.components if "gin" in c.name][0]
+        assert gin.purl.type == "golang"
+        assert gin.purl.namespace == "github.com/gin-gonic"
+        assert gin.purl.name == "gin"
+        assert gin.purl.version == "v1.9.1"
+
+    def test_parse_go_mod(self):
+        """Parse go.mod require block + module name."""
+        content = """\
+module github.com/example/myservice
+
+go 1.21
+
+require (
+\tgithub.com/gin-gonic/gin v1.9.1
+\tgolang.org/x/net v0.17.0
+)
+
+require (
+\tgithub.com/stretchr/testify v1.8.4 // indirect
+)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "go.mod").write_text(content)
+            result = parse_go_mod(repo)
+
+        assert result is not None
+        assert result.ecosystem == "golang"
+        assert result.main_name == "github.com/example/myservice"
+        names = {c.name for c in result.components}
+        assert "github.com/gin-gonic/gin" in names
+        assert "golang.org/x/net" in names
+        assert "github.com/stretchr/testify" in names
+        assert len(result.components) == 3
+
+
+# ---------------------------------------------------------------------------
+# Rust ecosystem
+# ---------------------------------------------------------------------------
+
+
+class TestRustParsers:
+    """Tests for Rust ecosystem parsers."""
+
+    def test_parse_cargo_lock(self):
+        """Parse Cargo.lock [[package]] blocks, verify PURL."""
+        content = """\
+# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 3
+
+[[package]]
+name = "serde"
+version = "1.0.193"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abc123"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.193"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "def456"
+
+[[package]]
+name = "tokio"
+version = "1.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "Cargo.lock").write_text(content)
+            (repo / "Cargo.toml").write_text(
+                '[package]\nname = "my-rust-app"\nversion = "0.1.0"\n'
+            )
+            result = parse_cargo_lock(repo)
+
+        assert result is not None
+        assert result.ecosystem == "cargo"
+        assert len(result.components) == 3
+
+        serde = [c for c in result.components if c.name == "serde"][0]
+        assert serde.purl.type == "cargo"
+        assert serde.purl.name == "serde"
+        assert serde.purl.version == "1.0.193"
+        assert str(serde.purl) == "pkg:cargo/serde@1.0.193"
+
+    def test_parse_cargo_toml(self):
+        """Parse Cargo.toml [dependencies] simple and table formats."""
+        content = """\
+[package]
+name = "my-crate"
+version = "0.2.0"
+
+[dependencies]
+serde = "1.0.193"
+tokio = { version = "1.35.0", features = ["full"] }
+rand = "0.8.5"
+
+[dev-dependencies]
+criterion = "0.5.1"
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "Cargo.toml").write_text(content)
+            result = parse_cargo_toml(repo)
+
+        assert result is not None
+        assert result.ecosystem == "cargo"
+        assert result.main_name == "my-crate"
+        assert result.main_version == "0.2.0"
+        names = {c.name for c in result.components}
+        assert "serde" in names
+        assert "tokio" in names
+        assert "rand" in names
+        assert "criterion" in names
+
+        tokio = [c for c in result.components if c.name == "tokio"][0]
+        assert tokio.version == "1.35.0"
+
+
+# ---------------------------------------------------------------------------
+# Aggregation functions
+# ---------------------------------------------------------------------------
+
+
+class TestAggregation:
+    """Tests for detect_manifests and parse_all."""
+
+    def test_detect_manifests_npm(self):
+        """Detect npm manifest files."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text("{}")
+            (repo / "package-lock.json").write_text("{}")
+            manifests = detect_manifests(repo)
+
+        names = {m.name for m in manifests}
+        assert "package.json" in names
+        assert "package-lock.json" in names
+
+    def test_detect_manifests_multi_ecosystem(self):
+        """Detect manifest files across multiple ecosystems."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text("{}")
+            (repo / "requirements.txt").write_text("")
+            (repo / "go.mod").write_text("")
+            (repo / "Cargo.toml").write_text("")
+            manifests = detect_manifests(repo)
+
+        names = {m.name for m in manifests}
+        assert "package.json" in names
+        assert "requirements.txt" in names
+        assert "go.mod" in names
+        assert "Cargo.toml" in names
+
+    def test_parse_all_prefers_lockfile(self):
+        """parse_all should prefer lockfile over plain manifest."""
+        lockfile = {
+            "name": "lock-app",
+            "version": "1.0.0",
+            "lockfileVersion": 3,
+            "packages": {
+                "": {"name": "lock-app", "version": "1.0.0"},
+                "node_modules/express": {"version": "4.18.2"},
+                "node_modules/lodash": {"version": "4.17.21"},
+            },
+        }
+        pkg = {
+            "name": "lock-app",
+            "version": "1.0.0",
+            "dependencies": {
+                "express": "^4.18.0",
+                # Note: lodash only in lockfile, not in package.json
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package-lock.json").write_text(json.dumps(lockfile))
+            (repo / "package.json").write_text(json.dumps(pkg))
+            result = parse_all(repo)
+
+        assert result is not None
+        # Should have the lockfile versions (precise), not manifest versions
+        express = [c for c in result.components if c.name == "express"]
+        assert len(express) == 1
+        assert express[0].version == "4.18.2"  # from lockfile, not "4.18.0"
+        # lodash from lockfile should be present
+        names = {c.name for c in result.components}
+        assert "lodash" in names
+
+    def test_parse_all_empty_repo(self):
+        """parse_all on empty repo returns empty result."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            result = parse_all(repo)
+
+        assert result is not None
+        assert len(result.components) == 0
+        assert result.main_name == ""
+        assert result.main_version == ""

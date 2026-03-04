@@ -1,0 +1,41 @@
+{
+  "packages": [
+    "@modelcontextprotocol/server-brave-search",
+    "@modelcontextprotocol/server-everything",
+    "@modelcontextprotocol/server-filesystem",
+    "@modelcontextprotocol/server-github",
+    "@modelcontextprotocol/server-gitlab",
+    "@modelcontextprotocol/server-google-maps",
+    "@modelcontextprotocol/server-memory",
+    "@modelcontextprotocol/server-postgres",
+    "@modelcontextprotocol/server-puppeteer",
+    "@modelcontextprotocol/server-slack",
+    "@modelcontextprotocol/server-sequential-thinking",
+    "@modelcontextprotocol/server-fetch",
+    "@modelcontextprotocol/server-redis",
+    "@modelcontextprotocol/server-sqlite",
+    "@modelcontextprotocol/server-time",
+    "@modelcontextprotocol/server-aws-kb-retrieval",
+    "@modelcontextprotocol/server-sentry",
+    "@modelcontextprotocol/server-gdrive",
+    "@modelcontextprotocol/server-everart",
+    "@modelcontextprotocol/sdk",
+    "@modelcontextprotocol/inspector",
+    "@anthropic/mcp-server",
+    "@playwright/mcp",
+    "@cloudflare/mcp-server-cloudflare",
+    "@stripe/mcp",
+    "mcp-remote",
+    "@executeautomation/playwright-mcp-server",
+    "firecrawl-mcp",
+    "tavily-mcp",
+    "@21st-dev/mcp-server"
+  ],
+  "trusted_scopes": [
+    "@modelcontextprotocol",
+    "@anthropic",
+    "@playwright",
+    "@cloudflare",
+    "@stripe"
+  ]
+}
